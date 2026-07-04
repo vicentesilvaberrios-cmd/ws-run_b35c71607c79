@@ -1,0 +1,1 @@
+-- No migration needed: client search uses existing clients table with RLS policies already in place.
