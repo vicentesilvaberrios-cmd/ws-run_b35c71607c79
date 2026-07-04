@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatTime, formatDate, normalizePhoneCL } from '@/lib/format';
+import { WeekCalendar } from './WeekCalendar';
 
 interface AgendaItem {
   id: string;
@@ -73,6 +74,17 @@ export function AgendaList({ initialDate, slug, orgName }: { initialDate: string
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
+  const [view, setView] = useState<'list' | 'week'>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('agenda:view') === 'week' ? 'week' : 'list';
+    }
+    return 'list';
+  });
+
+  const toggleView = (v: 'list' | 'week') => {
+    setView(v);
+    try { localStorage.setItem('agenda:view', v); } catch {}
+  };
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -126,27 +138,48 @@ export function AgendaList({ initialDate, slug, orgName }: { initialDate: string
 
   return (
     <div className="stack">
-      <div className="field">
-        <label htmlFor="agenda-date">Día</label>
+      {/* Toggle de vista + botón Agendar cita */}
+      <div className="cluster gap-2">
         <div className="cluster gap-2">
-          <input
-            id="agenda-date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            style={{ maxWidth: 200 }}
-          />
-          <button className="btn btn-sm btn-ghost" onClick={() => setDate(todayStr())}>
-            Hoy
+          <button
+            className={`btn btn-sm ${view === 'list' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => toggleView('list')}
+          >
+            Lista
           </button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setDate(tomorrowStr())}>
-            Mañana
-          </button>
-          <button className="btn btn-sm btn-primary" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? 'Cerrar' : 'Nueva cita'}
+          <button
+            className={`btn btn-sm ${view === 'week' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => toggleView('week')}
+          >
+            Semana
           </button>
         </div>
+        <button className="btn btn-sm btn-primary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? 'Cerrar' : 'Agendar cita'}
+        </button>
       </div>
+
+      {/* Controles específicos de la vista Lista */}
+      {view === 'list' && (
+        <div className="field">
+          <label htmlFor="agenda-date">Día</label>
+          <div className="cluster gap-2">
+            <input
+              id="agenda-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              style={{ maxWidth: 200 }}
+            />
+            <button className="btn btn-sm btn-ghost" onClick={() => setDate(todayStr())}>
+              Hoy
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setDate(tomorrowStr())}>
+              Mañana
+            </button>
+          </div>
+        </div>
+      )}
 
       {showForm && slug && (
         <CreateAppointmentForm
@@ -164,139 +197,147 @@ export function AgendaList({ initialDate, slug, orgName }: { initialDate: string
         </div>
       )}
 
-      <div className="grid grid-sm-2">
-        <div className="panel kpi">
-          <span className="label">Citas del día</span>
-          <span className="value">{loading ? '…' : items.length}</span>
-        </div>
-        <div className="panel kpi">
-          <span className="label">Próxima cita</span>
-          <span className="value">{loading ? '…' : nextCita}</span>
-        </div>
-      </div>
+      {view === 'list' && (
+        <>
+          <div className="grid grid-sm-2">
+            <div className="panel kpi">
+              <span className="label">Citas del día</span>
+              <span className="value">{loading ? '…' : items.length}</span>
+            </div>
+            <div className="panel kpi">
+              <span className="label">Próxima cita</span>
+              <span className="value">{loading ? '…' : nextCita}</span>
+            </div>
+          </div>
 
-      {noShowCount > 0 && (
-        <div className="panel kpi">
-          <span className="label">No-shows del día</span>
-          <span className="value">{noShowCount}</span>
-        </div>
-      )}
+          {noShowCount > 0 && (
+            <div className="panel kpi">
+              <span className="label">No-shows del día</span>
+              <span className="value">{noShowCount}</span>
+            </div>
+          )}
 
-      {loading && <p className="muted">Cargando agenda…</p>}
+          {loading && <p className="muted">Cargando agenda…</p>}
 
-      {error && (
-        <div className="alert alert-error" role="alert">
-          No pudimos cargar las citas.{' '}
-          <button className="btn btn-sm btn-ghost" onClick={() => load(date)}>Reintentar</button>
-        </div>
-      )}
+          {error && (
+            <div className="alert alert-error" role="alert">
+              No pudimos cargar las citas.{' '}
+              <button className="btn btn-sm btn-ghost" onClick={() => load(date)}>Reintentar</button>
+            </div>
+          )}
 
-      {!loading && !error && items.length === 0 && (
-        <div className="empty-state">
-          No hay citas para este día. Comparte tu link público para empezar a recibir reservas.
-        </div>
-      )}
+          {!loading && !error && items.length === 0 && (
+            <div className="empty-state">
+              Aún no hay citas para este día. Pulsa <strong>Agendar cita</strong> para crear la primera.
+            </div>
+          )}
 
-      {!loading && !error && items.length > 0 && (
-        <div className="table-wrap">
-          <table className="table">
-            <caption className="sr-only">Citas del {date}</caption>
-            <thead>
-              <tr>
-                <th scope="col">Hora</th>
-                <th scope="col">Servicio</th>
-                <th scope="col">Profesional</th>
-                <th scope="col">Cliente</th>
-                <th scope="col">Contacto</th>
-                <th scope="col">Estado</th>
-                <th scope="col">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    {formatTime(item.starts_at)}
-                  </td>
-                  <td>{item.service?.name ?? '—'}</td>
-                  <td>{item.professional_name ?? '—'}</td>
-                  <td>{item.customer_name}</td>
-                  <td className="text-sm">
-                    <div>{item.customer_phone}</div>
-                    <div className="muted">{item.customer_email}</div>
-                  </td>
-                  <td>
-                    <div className="stack gap-2">
-                      <StatusBadge status={item.status} />
-                      {item.confirmed_at && item.status === 'booked' && (
-                        <span className="badge badge-ok">Confirmada por el cliente</span>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    {item.status === 'booked' && (
-                      <div className="stack gap-2">
-                        <div className="cluster gap-2">
-                          <button
-                            className="btn btn-sm btn-primary"
-                            disabled={actionLoading === item.id}
-                            aria-label={`Marcar como asistió a ${item.customer_name}`}
-                            onClick={() => handleStatusChange(item.id, 'attended')}
-                          >
-                            Asistió
-                          </button>
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            disabled={actionLoading === item.id}
-                            aria-label={`Marcar que ${item.customer_name} no asistió`}
-                            onClick={() => handleStatusChange(item.id, 'no_show')}
-                          >
-                            No-show
-                          </button>
-                          <button
-                            className="btn btn-sm btn-danger"
-                            disabled={actionLoading === item.id}
-                            onClick={() => handleStatusChange(item.id, 'cancelled', item.customer_name)}
-                          >
-                            Cancelar
-                          </button>
+          {!loading && !error && items.length > 0 && (
+            <div className="table-wrap">
+              <table className="table">
+                <caption className="sr-only">Citas del {date}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Hora</th>
+                    <th scope="col">Servicio</th>
+                    <th scope="col">Profesional</th>
+                    <th scope="col">Cliente</th>
+                    <th scope="col">Contacto</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.id}>
+                      <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {formatTime(item.starts_at)}
+                      </td>
+                      <td>{item.service?.name ?? '—'}</td>
+                      <td>{item.professional_name ?? '—'}</td>
+                      <td>{item.customer_name}</td>
+                      <td className="text-sm">
+                        <div>{item.customer_phone}</div>
+                        <div className="muted">{item.customer_email}</div>
+                      </td>
+                      <td>
+                        <div className="stack gap-2">
+                          <StatusBadge status={item.status} />
+                          {item.confirmed_at && item.status === 'booked' && (
+                            <span className="badge badge-ok">Confirmada por el cliente</span>
+                          )}
                         </div>
-                        {(() => {
-                          const waUrl = buildWhatsAppUrl(item, orgName ?? 'el negocio');
-                          if (waUrl) {
-                            return (
-                              <a
-                                href={waUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="btn btn-sm btn-ghost"
+                      </td>
+                      <td>
+                        {item.status === 'booked' && (
+                          <div className="stack gap-2">
+                            <div className="cluster gap-2">
+                              <button
+                                className="btn btn-sm btn-primary"
+                                disabled={actionLoading === item.id}
+                                aria-label={`Marcar como asistió a ${item.customer_name}`}
+                                onClick={() => handleStatusChange(item.id, 'attended')}
                               >
-                                Recordar por WhatsApp
-                              </a>
-                            );
-                          }
-                          return (
-                            <span className="cluster gap-1">
-                              <button className="btn btn-sm btn-ghost" disabled>
-                                Recordar por WhatsApp
+                                Asistió
                               </button>
-                              <span className="help-tip" data-tip="El teléfono del cliente no es un número chileno válido." tabIndex={0} role="note" aria-label="El teléfono del cliente no es un número chileno válido.">?</span>
-                            </span>
-                          );
-                        })()}
-                        {rowErrors[item.id] && (
-                          <div className="alert alert-error" role="alert">
-                            {rowErrors[item.id]}
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                disabled={actionLoading === item.id}
+                                aria-label={`Marcar que ${item.customer_name} no asistió`}
+                                onClick={() => handleStatusChange(item.id, 'no_show')}
+                              >
+                                No-show
+                              </button>
+                              <button
+                                className="btn btn-sm btn-danger"
+                                disabled={actionLoading === item.id}
+                                onClick={() => handleStatusChange(item.id, 'cancelled', item.customer_name)}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                            {(() => {
+                              const waUrl = buildWhatsAppUrl(item, orgName ?? 'el negocio');
+                              if (waUrl) {
+                                return (
+                                  <a
+                                    href={waUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn btn-sm btn-ghost"
+                                  >
+                                    Recordar por WhatsApp
+                                  </a>
+                                );
+                              }
+                              return (
+                                <span className="cluster gap-1">
+                                  <button className="btn btn-sm btn-ghost" disabled>
+                                    Recordar por WhatsApp
+                                  </button>
+                                  <span className="help-tip" data-tip="El teléfono del cliente no es un número chileno válido." tabIndex={0} role="note" aria-label="El teléfono del cliente no es un número chileno válido.">?</span>
+                                </span>
+                              );
+                            })()}
+                            {rowErrors[item.id] && (
+                              <div className="alert alert-error" role="alert">
+                                {rowErrors[item.id]}
+                              </div>
+                            )}
                           </div>
                         )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {view === 'week' && (
+        <WeekCalendar initialDate={date} />
       )}
     </div>
   );
@@ -390,6 +431,10 @@ function CreateAppointmentForm({
         const active = (Array.isArray(data) ? data : []).filter((p: Professional) => p.active);
         setProfessionals(active);
         setProfessionalsLoading(false);
+        // Auto-select if only one active professional
+        if (active.length === 1) {
+          setProfessionalId(active[0].id);
+        }
       })
       .catch(() => setProfessionalsLoading(false));
   }, []);
@@ -446,8 +491,7 @@ function CreateAppointmentForm({
     if (!selectedSlot) errors.slot = 'Elige un horario disponible';
     if (!name.trim()) errors.name = 'El nombre es obligatorio';
     if (!phone.trim()) errors.phone = 'El teléfono es obligatorio';
-    if (!email.trim()) errors.email = 'El email es obligatorio';
-    else if (!/^.+@.+\..+$/.test(email)) errors.email = 'Email inválido';
+    if (email.trim() && !/^.+@.+\..+$/.test(email)) errors.email = 'Email inválido';
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return;
@@ -555,7 +599,10 @@ function CreateAppointmentForm({
 
           {serviceId && professionalId && (
             <div className="field">
-              <span className="label">Horario disponible</span>
+              <span className="label">
+                Horario disponible
+                <span className="help-tip" data-tip="Horarios reales según la disponibilidad del profesional." tabIndex={0} role="note" aria-label="Horarios reales según la disponibilidad del profesional.">?</span>
+              </span>
               {slotsLoading && <p className="muted">Buscando horarios…</p>}
               {slotsError && (
                 <div className="alert alert-error" role="alert">
@@ -642,15 +689,18 @@ function CreateAppointmentForm({
           </div>
 
           <div className="field">
-            <label htmlFor="form-email">Email</label>
+            <label htmlFor="form-email">
+              Email
+              <span className="help-tip" data-tip="Opcional. Si lo agregas, enviaremos la confirmación por correo." tabIndex={0} role="note" aria-label="Email opcional. Si lo agregas, enviaremos la confirmación por correo.">?</span>
+            </label>
             <input
               id="form-email"
               type="email"
               value={email}
+              placeholder="Email (opcional)"
               onChange={(e) => { setEmail(e.target.value); clearFieldError('email'); }}
               aria-invalid={!!fieldErrors.email}
               aria-describedby={fieldErrors.email ? 'form-email-error' : undefined}
-              required
             />
             {fieldErrors.email && (
               <p id="form-email-error" className="error-text">{fieldErrors.email}</p>
@@ -663,7 +713,7 @@ function CreateAppointmentForm({
 
           <div className="cluster">
             <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? 'Guardando cita…' : 'Guardar cita'}
+              {submitting ? 'Agendando…' : 'Agendar'}
             </button>
             <button type="button" className="btn btn-ghost" onClick={onCreated} disabled={submitting}>
               Cancelar
