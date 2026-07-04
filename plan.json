@@ -1,0 +1,29 @@
+{
+  "backend": [
+    "EDIT app/api/appointments/route.ts: GET añade soporte para parámetros `from`+`to` (rango de fechas para la vista semanal, manteniendo compatibilidad con `date`); POST hace `customer_email` opcional (permite null/vacío)",
+    "NEW supabase/migrations/0009_email_optional.sql: Redefine `owner_create_appointment` para aceptar email nulo o vacío (walk-in/teléfono no exigen email); copia la función existente de 0006 y relaja solo la validación de email"
+  ],
+  "frontend": [
+    "NEW app/dashboard/agenda/WeekCalendar.tsx: Componente de calendario semanal — columnas Lun-Dom, filas por hora (rango del horario configurado con fallback 07:00-20:00 obtenido de /api/business-hours), citas como tarjetas posicionadas por día/hora con nombre del cliente y servicio, colores por estado (reservada/confirmada/atendida/no vino/cancelada) con leyenda, bloqueos schedule_blocks como franjas grises achuradas con motivo, navegación semana anterior/hoy/siguiente mostrando rango de fechas, fetch de citas vía /api/appointments?from=…&to=…, fetch de bloqueos vía /api/schedule-blocks (filtro client-side), mobile-first con scroll horizontal vía .table-wrap, horas 24h America/Santiago usando lib/format.ts",
+    "EDIT app/dashboard/agenda/AgendaList.tsx: (1) Añadir toggle Lista/Semana con persistencia en localStorage y renderizar WeekCalendar cuando corresponda; (2) En CreateAppointmentForm: auto-seleccionar profesional si hay solo uno activo, hacer email opcional (quitar validación required y error), cambiar texto del botón toggle a 'Agendar cita' y del botón submit a 'Agendar'; (3) KPIs y lista existentes sin cambios",
+    "EDIT app/globals.css: Añadir clases mínimas para el calendario semanal — `.week-grid` (CSS grid 8 columnas: hora + 7 días), `.week-cell` (celda de hora/día con position relative), `.week-appt` (tarjeta de cita posicionada absolutamente), `.week-block` (fondo achurado/striped para bloqueos), `.week-legend` (leyenda de colores)"
+  ],
+  "acceptance_criteria": [
+    "La agenda del dueño muestra un toggle claro entre 'Lista' y 'Semana' que recuerda la elección en localStorage",
+    "La vista Semana muestra columnas de Lunes a Domingo con filas por hora acotadas al horario configurado del negocio (fallback 07:00-20:00)",
+    "Las citas se muestran como tarjetas en su día/hora con nombre del cliente y servicio, con colores diferenciados por estado (reservada/confirmada/atendida/no vino/cancelada) y una leyenda simple",
+    "Los bloqueos (schedule_blocks) se muestran como franjas grises achuradas con su motivo en la vista semanal",
+    "La navegación de semana permite ir a semana anterior, hoy y semana siguiente, mostrando el rango de fechas visible",
+    "En móvil la vista semana degrada a scroll horizontal usable",
+    "Todas las horas se muestran en formato 24h zona America/Santiago",
+    "Hay un botón 'Agendar cita' visible en la agenda que abre un formulario compacto",
+    "El formulario precarga: fecha por defecto hoy, profesional preseleccionado si hay uno solo, slots de hora reales disponibles (usando /api/public/[slug]/availability)",
+    "El email es opcional en el formulario de cita manual (nombre y teléfono obligatorios)",
+    "El formulario tiene un solo botón primario 'Agendar' que crea la cita vía POST /api/appointments reutilizando la validación existente",
+    "Si el cupo se ocupó, se muestra un error claro al intentar agendar",
+    "La vista Lista existente no se elimina ni rompe — sigue funcionando igual",
+    "No se duplican validaciones de solape (el constraint de DB y el RPC ya protegen)",
+    "El TUTEO es consistente en todos los textos nuevos",
+    "Hay estados de carga, vacío y error en la vista semanal"
+  ]
+}
