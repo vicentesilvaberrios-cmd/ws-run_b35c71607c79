@@ -11,32 +11,47 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const date = searchParams.get('date');
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
 
-  if (!date) {
-    return NextResponse.json(
-      { error: 'El parámetro date es obligatorio (YYYY-MM-DD)' },
-      { status: 400 }
-    );
-  }
+  let rangeStart: string;
+  let rangeEnd: string;
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (from && to) {
+    // Weekly view: date range
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return NextResponse.json(
+        { error: 'Formato de fecha inválido (usar YYYY-MM-DD)' },
+        { status: 400 }
+      );
+    }
+    rangeStart = `${from}T00:00:00.000Z`;
+    rangeEnd = `${to}T23:59:59.999Z`;
+  } else if (date) {
+    // Single-day view (backward compatible)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return NextResponse.json(
+        { error: 'Formato de fecha inválido (usar YYYY-MM-DD)' },
+        { status: 400 }
+      );
+    }
+    rangeStart = `${date}T00:00:00.000Z`;
+    rangeEnd = `${date}T23:59:59.999Z`;
+  } else {
     return NextResponse.json(
-      { error: 'Formato de fecha inválido (usar YYYY-MM-DD)' },
+      { error: 'Se requiere el parámetro date o from+to (YYYY-MM-DD)' },
       { status: 400 }
     );
   }
 
   const supabase = await createClient();
 
-  const startOfDay = `${date}T00:00:00.000Z`;
-  const endOfDay = `${date}T23:59:59.999Z`;
-
   const { data: appts, error } = await supabase
     .from('appointments')
     .select('id,starts_at,ends_at,customer_name,customer_phone,customer_email,status,service_id,client_id,professional_id,public_token,confirmed_at')
     .eq('org_id', org.id)
-    .gte('starts_at', startOfDay)
-    .lte('starts_at', endOfDay)
+    .gte('starts_at', rangeStart)
+    .lte('starts_at', rangeEnd)
     .order('starts_at', { ascending: true });
 
   if (error) {
@@ -100,14 +115,19 @@ export async function POST(request: Request) {
     professional_id?: string;
   };
 
-  if (!service_id || !starts_at || !customer_name || !customer_phone || !customer_email) {
+  if (!service_id || !starts_at || !customer_name || !customer_phone) {
     return NextResponse.json(
-      { error: 'Todos los campos son obligatorios' },
+      { error: 'Faltan campos obligatorios (service_id, starts_at, customer_name, customer_phone)' },
       { status: 400 }
     );
   }
 
-  if (!/^.+@.+\..+$/.test(customer_email)) {
+  // Email is optional (walk-in / phone bookings may not have an email)
+  const normalizedEmail = customer_email && customer_email.trim() !== ''
+    ? customer_email.trim()
+    : null;
+
+  if (normalizedEmail && !/^.+@.+\..+$/.test(normalizedEmail)) {
     return NextResponse.json({ error: 'Email inválido' }, { status: 400 });
   }
 
@@ -127,7 +147,7 @@ export async function POST(request: Request) {
     p_starts_at: starts_at,
     p_name: customer_name,
     p_phone: customer_phone,
-    p_email: customer_email,
+    p_email: normalizedEmail,
     p_professional_id: professional_id ?? null,
   });
 
@@ -148,36 +168,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  // Enviar email de confirmación (degradación con gracia)
+  // Enviar email de confirmación solo si hay email (degradación con gracia)
   let email_sent = true;
-  try {
-    const { data: service } = await supabase
-      .from('services')
-      .select('name')
-      .eq('id', service_id)
-      .single();
+  if (normalizedEmail) {
+    try {
+      const { data: service } = await supabase
+        .from('services')
+        .select('name')
+        .eq('id', service_id)
+        .single();
 
-    // Recuperar public_token de la cita recién creada
-    const { data: aptRow } = await supabase
-      .from('appointments')
-      .select('public_token')
-      .eq('id', data)
-      .single();
+      // Recuperar public_token de la cita recién creada
+      const { data: aptRow } = await supabase
+        .from('appointments')
+        .select('public_token')
+        .eq('id', data)
+        .single();
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
-    const confirmUrl = aptRow?.public_token
-      ? `${siteUrl}/cita/${aptRow.public_token}`
-      : undefined;
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
+      const confirmUrl = aptRow?.public_token
+        ? `${siteUrl}/cita/${aptRow.public_token}`
+        : undefined;
 
-    await sendConfirmationEmail({
-      to: customer_email,
-      businessName: org.name,
-      serviceName: service?.name ?? 'Servicio',
-      startsAt: starts_at,
-      confirmUrl,
-    });
-  } catch (err) {
-    console.warn('[appointments] No se pudo enviar email de confirmación:', err);
+      await sendConfirmationEmail({
+        to: normalizedEmail,
+        businessName: org.name,
+        serviceName: service?.name ?? 'Servicio',
+        startsAt: starts_at,
+        confirmUrl,
+      });
+    } catch (err) {
+      console.warn('[appointments] No se pudo enviar email de confirmación:', err);
+      email_sent = false;
+    }
+  } else {
     email_sent = false;
   }
 
