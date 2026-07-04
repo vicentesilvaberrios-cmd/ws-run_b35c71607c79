@@ -16,26 +16,33 @@ interface WeekAppt {
 
 interface WeekBlock {
   id: string;
-  start_time: string;
-  end_time: string;
+  start_time: string | null;
+  end_time: string | null;
   reason: string | null;
-  date?: string | null;
-  recurrence?: string | null;
+  block_date?: string | null;
 }
 
-interface BusinessHours {
-  open_time: string;
-  close_time: string;
+interface BusinessHoursRow {
+  weekday: number;
+  start_time: string;
+  end_time: string;
 }
 
 const DAY_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const DAY_LABELS_LONG = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
-/** Returns Monday of the week containing `dateStr` (YYYY-MM-DD), in America/Santiago. */
+/** Returns Monday of the week containing `dateStr` (YYYY-MM-DD), computed in America/Santiago. */
 function startOfWeek(dateStr: string): Date {
-  const d = new Date(dateStr + 'T00:00:00');
-  const day = d.getDay(); // 0=Sun .. 6=Sat
-  const diff = day === 0 ? -6 : 1 - day; // offset to Monday
+  // Build a date at noon Santiago time to avoid TZ edge effects
+  const d = new Date(dateStr + 'T12:00:00-03:00');
+  // Get the weekday in Santiago
+  const santiagoWeekday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Santiago',
+    weekday: 'short',
+  }).format(d);
+  const weekdayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  const day = weekdayMap[santiagoWeekday] ?? 0;
+  const diff = day === 6 ? -6 : -day; // offset to Monday
   d.setDate(d.getDate() + diff);
   return d;
 }
@@ -87,7 +94,7 @@ function statusClass(status: string, confirmed: string | null): string {
   if (status === 'cancelled') return 'week-appt-st-cancelled';
   if (status === 'attended') return 'week-appt-st-attended';
   if (status === 'no_show') return 'week-appt-st-no_show';
-  if (confirmed || status === 'confirmed') return 'week-appt-st-confirmed';
+  if (confirmed) return 'week-appt-st-confirmed';
   return 'week-appt-st-booked';
 }
 
@@ -95,7 +102,7 @@ function statusLabel(status: string, confirmed: string | null): string {
   if (status === 'cancelled') return 'Cancelada';
   if (status === 'attended') return 'Asistió';
   if (status === 'no_show') return 'No asistió';
-  if (confirmed || status === 'confirmed') return 'Confirmada';
+  if (confirmed) return 'Confirmada';
   return 'Reservada';
 }
 
@@ -106,13 +113,17 @@ export function WeekCalendar({ initialDate }: { initialDate: string }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(initialDate));
   const [appointments, setAppointments] = useState<WeekAppt[]>([]);
   const [blocks, setBlocks] = useState<WeekBlock[]>([]);
-  const [businessHours, setBusinessHours] = useState<BusinessHours | null>(null);
+  const [businessHours, setBusinessHours] = useState<BusinessHoursRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const openTime = businessHours?.open_time || FALLBACK_OPEN;
-  const closeTime = businessHours?.close_time || FALLBACK_CLOSE;
+  const openTime = businessHours
+    ? businessHours.reduce((min, r) => r.start_time < min ? r.start_time : min, businessHours[0]?.start_time || FALLBACK_OPEN)
+    : FALLBACK_OPEN;
+  const closeTime = businessHours
+    ? businessHours.reduce((max, r) => r.end_time > max ? r.end_time : max, businessHours[0]?.end_time || FALLBACK_CLOSE)
+    : FALLBACK_CLOSE;
   const openMin = parseTimeToMinutes(openTime);
   const closeMin = parseTimeToMinutes(closeTime);
   const totalMin = closeMin - openMin;
@@ -153,8 +164,8 @@ export function WeekCalendar({ initialDate }: { initialDate: string }) {
 
       if (bhRes.ok) {
         const bhData = await bhRes.json();
-        if (bhData && bhData.open_time && bhData.close_time) {
-          setBusinessHours({ open_time: bhData.open_time, close_time: bhData.close_time });
+        if (Array.isArray(bhData) && bhData.length > 0) {
+          setBusinessHours(bhData);
         }
       }
     } catch {
@@ -172,11 +183,9 @@ export function WeekCalendar({ initialDate }: { initialDate: string }) {
   const weekBlocks = useMemo(() => {
     const weekDates = new Set(days.map((d) => d.date));
     return blocks.filter((b) => {
-      // If block has a date, check if it's in this week
-      if (b.date) {
-        return weekDates.has(b.date);
+      if (b.block_date) {
+        return weekDates.has(b.block_date);
       }
-      // If recurring (no specific date), include it
       return true;
     });
   }, [blocks, days]);
@@ -196,7 +205,7 @@ export function WeekCalendar({ initialDate }: { initialDate: string }) {
   const blocksByDay = useMemo(() => {
     const map: Record<string, WeekBlock[]> = {};
     for (const b of weekBlocks) {
-      const dateKey = b.date || '';
+      const dateKey = b.block_date || '';
       if (!dateKey) continue;
       if (!map[dateKey]) map[dateKey] = [];
       map[dateKey].push(b);
@@ -248,8 +257,8 @@ export function WeekCalendar({ initialDate }: { initialDate: string }) {
 
   // For blocks that may use time-only (HH:MM) without a full ISO
   const computeBlockPosition = (b: WeekBlock) => {
-    const bStart = parseTimeToMinutes(b.start_time.slice(0, 5));
-    const bEnd = parseTimeToMinutes(b.end_time.slice(0, 5));
+    const bStart = b.start_time ? parseTimeToMinutes(b.start_time.slice(0, 5)) : openMin;
+    const bEnd = b.end_time ? parseTimeToMinutes(b.end_time.slice(0, 5)) : closeMin;
     const top = Math.max(0, (bStart - openMin) / totalMin) * 100;
     // A block might span the full remaining day; cap height to visible
     const height = Math.max(4, ((Math.min(bEnd, closeMin) - bStart) / totalMin) * 100);
